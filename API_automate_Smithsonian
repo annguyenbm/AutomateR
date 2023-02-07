@@ -1,0 +1,113 @@
+---
+title: 'Smithsonian APIs'
+author: "Binh Minh An Nguyen"
+date: "Feb 27, 2022"
+output:
+  html_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 4
+urlcolor: blue
+---
+
+
+# Using APIs
+
+1. Pick a website that requires a free API key and has recent data to interact with. 
+
+Website API of choice - Smithsonian Open Access [https://www.si.edu/openaccess/]
+
+
+2. Identify the link to instructions to obtain a key for the API.
+
+The instruction and link to create an API_Key can be found here: [https://edan.si.edu/openaccess/apidocs/]
+
+```{r, include=FALSE}
+library(httr)
+library(tidyverse)
+library(keyring)
+library(jsonlite)
+library(rvest)
+```
+
+We are interested in getting to know the information of some artworks available at Smithsonian Museums. To get the data of interest, we will use api_search to fetch the data from SI's Open Access database.
+
+The result tibble is stored under the element `<result>[["response"]]$rows`
+
+```{r fetch-data}
+fetch <- function(x) {
+  vec <- c(0, seq(from = 1001, to = 9001, by = 1000))
+  for (x in seq_along(vec)) {
+    return(fromJSON(content(
+      GET(
+        url = "https://api.si.edu/openaccess/api/v1.0/search",
+        query = list(
+          q = "art",
+          start = x,
+          rows = 1000,
+          sort = "newest",
+          type = "all",
+          row_group = "objects",
+          r = "json",
+          api_key = key_get("SI_API_KEY")
+        )
+      ),
+      as = "text"
+    ),
+    flatten = TRUE
+    )[["response"]]$rows)
+  }
+}
+```
+
+3. Question of interest
+
+We would like to know among 5000 records of the newest artworks, which Smithsonian Museums displays the highest number of these artworks. New artwork does not mean that the art has been created recently, but could be the artwork is newly officially given to the Museum for displaying or community access.
+
+```{r art-si-data}
+si_art <- bind_rows(
+  fetch(0), fetch(1001), fetch(2001), fetch(3001), fetch(4001)
+  )
+```
+
+The museum that currently reserves or display the artworks are recorded at the **unitCode** column. If the first 4-letter within the `uniCode` is the same, it indicates that the artworks are stored at the same museums but by different departments.
+
+Having more new items somewhat indicates and associates with the museum's operational health and capacity, since new items could draw more attentions and visitors.
+
+1. Create an appropriate plot with proper labels and theme to analyze your question of interest.
+
+```{r}
+museum_ord <- si_art |>
+  mutate(museum_code = str_sub(unitCode, 1, 4)) |>
+  count(museum_code) |>
+  arrange(desc(n)) |>
+  head(10)
+
+si_art |>
+  mutate(museum_code = str_sub(unitCode, 1, 4)) |>
+  inner_join(museum_ord, by = c("museum_code" = "museum_code")) |>
+  ggplot(aes(x = fct_reorder(museum_code, n))) +
+  geom_bar() +
+  theme_bw() +
+  labs(
+    title = "New ArtWorks by Smithsonian Museums",
+    x = "",
+    y = "count"
+  ) +
+  coord_flip()
+```
+
+4. Interpret the plot to answer your question
+
+Among all museums and departments, AAA or the Archives of American Arts most frequently receives new items comparing to other types of museums do with Smithsonian Group. This is understandable as other Smithsonian Museums are more specifying in the range of art content. 
+
+Having a wide range of artworks and frequently update new items are factors to draw attentions from both new and returning visitors and allow the museums hold more artworks sales-purchasing activities - another key-revenue driven. Nevertheless, more analyses, including metadata analysis, are required to confirm the effect of having new items on the museum's financial and operational health.
+
+
+5. Comment on the severity or strictness of the guidance or the lack of guidance. Discuss how the guidance could enable or restrain unethical uses of the data.
+
+Smithsonian's Open Access is an inspiring resources for public usages on several aspects of research and studies without the need of applying for a copy-right. Follow the Term of Usage, items with **CC0 License** trademark is considered open to public. Nevertheless, it does not mean the item content (i.e.: image, video, digit copy of an artwork, etc.) is available. For example, we can only access the folder that stores the photographs collection, but unable to see the digital copy of these photos, unless further permission is approved by the author or Smithsonian's Management board.
+
+Since museums' materials are all about history, culture, religions, civilizations, etc., which are possibly highly sensitive cases. The mentioned restriction can prevent potential users, who want to steal the works for unethical purposes or to provoke political conflicts.
+
+In addition, only 1000 rows are approved per API request. Such restrictions set time and volume constraints to any data users.
